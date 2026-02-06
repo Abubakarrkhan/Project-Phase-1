@@ -21,6 +21,5 @@ with open ('gdp.csv','r') as gdpData:
     
     userRegionData=filter(findrow,regionsData) # it is 2D list but we have only one matching country we will access its data by [0][colNumber]
     stored = list(userRegionData)
-
-
-print(stored[0][0])
+#hello 
+print(stored[0][1])
