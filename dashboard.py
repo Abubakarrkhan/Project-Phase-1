@@ -15,34 +15,13 @@ gdpList=dataloader.get_gdp_list(config,regionList)# get a dictionary
 result = dataprocessor.doOperation(config,gdpList)# apply operation
 
 
+print("=========== GDP DASHBOARD ===========")
 print("The selected records from user data is : ")
 print(regionList)
 
 if len(regionList)==1:
-    print("The " ,config["operation"] ," of all years of ",config["region"], " is ", result)
+    print("The " ,config["operation"] ,"of gdp of all years(1960-2024) of ",config["region"], " is ", result)
     visualization.visualizeDataofCountry(gdpList)
 else: 
-    print("The " ,config["operation"] ," of all countries of ",config["region"], " is ", result)
+    print("The " ,config["operation"] ," of gdp of all countries of ",config["region"], " is ", result)
     visualization.visualizeDataofRegion(gdpList)
-
-
-
-
-
-def getDictionaryofAllRegion(row, year):
-    return { row["Country Name"]: row.get(str(year), 0.0)}#str(year)convert int to str eg 2020 to "2020" so now we can access easily 
-
-
-
-def getDictionaryofACountry(row):
-    return list({ year: row.get(str(year), 0.0)} for year in range(1960, 2025))
-
-
-def get_gdp_list(config, countries):# countries is list of dictionary
-    if len(countries)!=1:
-        target_year = config["year"]
-        return list(map(lambda row: getDictionaryofAllRegion(row, target_year), countries))
-    else : 
-        return getDictionaryofACountry(countries[0])
-
-
