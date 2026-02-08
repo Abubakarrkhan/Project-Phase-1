@@ -53,5 +53,19 @@ def get_countries(config,cleanedData):#cleanedData is list of dictionary
 
 
 
+def getDictionaryofAllRegion(row, year):
+    return { row["Country Name"]: row.get(str(year), 0.0)}#str(year)convert int to str eg 2020 to "2020" so now we can access easily 
 
 
+
+def getDictionaryofACountry(row):
+    available_years = sorted([int(k) for k in row.keys() if k.isdigit()])# convert all years into list 
+    return list({year: row.get(str(year), 0.0)} for year in available_years)# iterate over years
+
+
+def get_gdp_list(config, countries):# countries is list of dictionary
+    if len(countries)!=1:
+        target_year = config["year"]
+        return list(map(lambda row: getDictionaryofAllRegion(row, target_year), countries))
+    else : 
+        return getDictionaryofACountry(countries[0])
