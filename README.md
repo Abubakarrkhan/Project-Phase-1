@@ -6,8 +6,8 @@ This file is a simple guide for how we manage code and documentation for Phase 1
 Build a functional, data-driven GDP analysis system in Python using functional programming and clean module design.
 
 ## Collaborators
-- Zaid
-- Abubakar
+- Zaid (24L-0726)
+- Abubakar (24L-0507)
 
 ## About files 
 - dataloader filters specific region and its gdp from csv based on user input in .json file
