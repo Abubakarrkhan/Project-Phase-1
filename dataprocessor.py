@@ -5,7 +5,7 @@ def doSum(x, row):
     return x + gdp_value
 
 def doOperation(config,data):   
-    sum= reduce(doSum,data,0.0) #function , iteratable,initalizer 
+    sum= reduce(doSum,data,0.0) #function , iteratable, initalizer 
     if(config["operation"]=='sum'):
         return sum 
     elif config["operation"]=='average':
