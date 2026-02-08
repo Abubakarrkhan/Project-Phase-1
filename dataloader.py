@@ -1,25 +1,36 @@
-import json 
-import csv 
+import csv
 
-# r mean for reading 
-with open ('config.json','r') as userdata:
-    userinput=json.load(userdata)
-# userinput becomes a dictionary that copy the data from the config.json file
-# with indentation of 'with' close the json file is closed 
-
-def findrow(row):
-    if row[0]==userinput["region"]:
-        return True 
-    else: 
-        return False 
+yearlygdp=[];
+years=[];  
+  
+             
 
 
-with open ('gdp.csv','r') as gdpData:
-    regionsData=csv.reader(gdpData)
-# in csv file we do not copy but iterate over the file 
-# if file is closed we cannot access again so we write in 'with' indentation
+
+with open("gdp.csv", "r") as file:
+    reader = csv.reader(file)
+    i=0;
+    rownum=-1;
+
+
+
+
+    for row in reader:
+        
+        if i < 1:
+           i+=1;
+           for i in range(4,69,1):
+               years.append(str(row[i]));
+              
+           #col 0 in the years array has the data starring from col 4 & row1 of the spreadsheet
+           
+           continue
+        rownum=rownum+1;
+        
+        yearlygdp.append([])
+        
+        yearlygdp[rownum].append(str(row[0]))
+       
+        for i in range(4,70,1):
+             yearlygdp[rownum].append(str(row[i]));
     
-    userRegionData=filter(findrow,regionsData) # it is 2D list but we have only one matching country we will access its data by [0][colNumber]
-    stored = list(userRegionData)
-#hello 
-print(stored[0][1])
