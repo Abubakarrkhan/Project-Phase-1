@@ -1,0 +1,9 @@
+{
+  "region": "Pakistan",
+  "year": 2020,
+  "year_start": 2010,
+  "year_end": 2020,
+  "decline_years": 5,
+  "input": "csv",
+  "output": "dashboard"
+}
