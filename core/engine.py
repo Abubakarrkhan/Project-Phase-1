@@ -113,4 +113,101 @@ def _top_n(rows: List[Dict], year_col: str, n: int, ascending: bool) -> List[Dic
     return sorted(keyed, key=lambda x: x["GDP"], reverse=not ascending)[:n]
 
 
+def _growth_rates(rows: List[Dict], year_start: int, year_end: int) -> List[Dict]:
+    def compute(row: Dict) -> Dict:
+        start = _gdp(row, str(year_start))
+        end   = _gdp(row, str(year_end))
+        return {
+            "Country":      row["Country Name"],
+            "GDP_Start":    start,
+            "GDP_End":      end,
+            "Growth_Rate_%": round(_growth_rate(start, end), 2),
+        }
 
+    return sorted(
+        [compute(r) for r in rows if _is_country(r)],
+        key=lambda x: x["Growth_Rate_%"],
+        reverse=True,
+    )
+
+
+def _average_gdp_by_continent(all_rows: List[Dict], year_start: int, year_end: int) -> List[Dict]:
+    years = [str(y) for y in range(year_start, year_end + 1)]
+    buckets: Dict[str, List[float]] = defaultdict(list)
+
+    for row in filter(_is_country, all_rows):
+        continent = row.get("Continent", "Unknown")
+        gdp_vals  = [v for y in years if (v := _gdp(row, y)) > 0]
+        if gdp_vals:
+            buckets[continent].extend(gdp_vals)
+
+    return sorted(
+        [{"Continent": c, "Average_GDP": round(sum(vals) / len(vals), 2)}
+         for c, vals in buckets.items()],
+        key=lambda x: x["Average_GDP"],
+        reverse=True,
+    )
+
+
+def _global_gdp_trend(all_rows: List[Dict], year_start: int, year_end: int) -> List[Dict]:
+    country_rows = [r for r in all_rows if _is_country(r)]
+    return [
+        {"Year": y, "Global_GDP": round(sum(_gdp(r, str(y)) for r in country_rows), 2)}
+        for y in range(year_start, year_end + 1)
+    ]
+
+
+def _fastest_growing_continent(all_rows: List[Dict], year_start: int, year_end: int) -> Dict:
+    totals: Dict[str, Dict[str, float]] = defaultdict(lambda: {"start": 0.0, "end": 0.0})
+
+    for row in filter(_is_country, all_rows):
+        continent = row.get("Continent", "Unknown")
+        totals[continent]["start"] += _gdp(row, str(year_start))
+        totals[continent]["end"]   += _gdp(row, str(year_end))
+
+    rates = [
+        {"Continent": c, "Growth_Rate_%": round(_growth_rate(v["start"], v["end"]), 2)}
+        for c, v in totals.items()
+    ]
+    return max(rates, key=lambda x: x["Growth_Rate_%"])
+
+
+def _consistent_decliners(rows: List[Dict], year_end: int, n_years: int) -> List[Dict]:
+    years = [str(year_end - i) for i in range(n_years - 1, -1, -1)]
+
+    def is_declining(row: Dict) -> bool:
+        vals = [_gdp(row, y) for y in years]
+        return all(prev > curr > 0 for prev, curr in zip(vals, vals[1:]))
+
+    return [
+        {
+            "Country":           r["Country Name"],
+            f"GDP_{years[0]}":   _gdp(r, years[0]),
+            f"GDP_{years[-1]}":  _gdp(r, years[-1]),
+        }
+        for r in rows if _is_country(r) and is_declining(r)
+    ]
+
+
+def _continent_contribution(all_rows: List[Dict], year_start: int, year_end: int) -> List[Dict]:
+    years        = [str(y) for y in range(year_start, year_end + 1)]
+    totals: Dict[str, float] = defaultdict(float)
+
+    for row in filter(_is_country, all_rows):
+        continent = row.get("Continent", "Unknown")
+        totals[continent] += sum(_gdp(row, y) for y in years)
+
+    global_total = sum(totals.values())
+
+    return sorted(
+        [
+            {
+                "Continent":      c,
+                "Total_GDP":      round(val, 2),
+                "Contribution_%": round(val / global_total * 100 if global_total else 0, 2),
+            }
+            for c, val in totals.items()
+        ],
+        key=lambda x: x["Contribution_%"],
+        reverse=True,
+    )
