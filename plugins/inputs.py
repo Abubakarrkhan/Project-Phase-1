@@ -1,5 +1,6 @@
 
 
+
 import csv
 import json
 from typing import Any, List
@@ -36,8 +37,9 @@ class CSVReader:
     def load(self) -> None:
         try:
             with open(self._file_path, newline="", encoding="utf-8-sig") as f:
-                rows: List[Any] = [_clean_csv_row(r) for r in csv.DictReader(f)]
-            self._service.execute(rows)
+                reader = csv.DictReader(f)
+                cleaned: List[Any] = list(map(_clean_csv_row, reader))
+            self._service.execute(cleaned)
         except FileNotFoundError:
             print(f"[CSVReader] File not found: {self._file_path}")
         except Exception as e:
@@ -55,7 +57,8 @@ class JSONReader:
         try:
             with open(self._file_path, encoding="utf-8") as f:
                 raw: List[Any] = json.load(f)
-            self._service.execute([_clean_json_row(r) for r in raw])
+            cleaned = list(map(_clean_json_row, raw))
+            self._service.execute(cleaned)
         except FileNotFoundError:
             print(f"[JSONReader] File not found: {self._file_path}")
         except json.JSONDecodeError as e:
