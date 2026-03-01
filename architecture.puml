@@ -1,0 +1,161 @@
+@startuml GDP_Dashboard_Phase2
+
+allowmixing
+
+!theme plain
+skinparam packageStyle rectangle
+skinparam ArrowColor #444444
+skinparam ClassBorderColor #444444
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #FBC02D
+
+title GDP Dashboard – Phase 2 Architecture\n(Dependency Inversion Principle)
+
+' ─────────────────────────────────────────────────────
+' CORE PACKAGE  (owns the contracts)
+' ─────────────────────────────────────────────────────
+package "core" #E3F2FD {
+
+    interface "<<Protocol>>\nDataSink" as DataSink {
+        + write(label: str, records: List[dict]) : None
+    }
+
+    interface "<<Protocol>>\nPipelineService" as PipelineService {
+        + execute(raw_data: List[Any]) : None
+    }
+
+    class TransformationEngine {
+        - _sink : DataSink
+        - _config : dict
+        + __init__(sink: DataSink, config: dict)
+        + execute(raw_data: List[Any]) : None
+    }
+
+    note right of TransformationEngine
+      Transformation logic lives in
+      module-level pure functions:
+      _top_n(), _growth_rates(),
+      _average_gdp_by_continent(),
+      _global_gdp_trend(),
+      _fastest_growing_continent(),
+      _consistent_decliners(),
+      _continent_contribution()
+    end note
+
+    TransformationEngine ..|> PipelineService : implements
+    TransformationEngine --> DataSink : calls write() on
+}
+
+' ─────────────────────────────────────────────────────
+' PLUGINS PACKAGE – INPUT
+' ─────────────────────────────────────────────────────
+package "plugins / inputs" #F3E5F5 {
+
+    class CSVReader {
+        - _service : PipelineService
+        - _file_path : str
+        + __init__(service: PipelineService, file_path: str)
+        + load() : None
+    }
+
+    class JSONReader {
+        - _service : PipelineService
+        - _file_path : str
+        + __init__(service: PipelineService, file_path: str)
+        + load() : None
+    }
+}
+
+CSVReader  --> PipelineService : calls execute()
+JSONReader --> PipelineService : calls execute()
+
+' ─────────────────────────────────────────────────────
+' PLUGINS PACKAGE – OUTPUT
+' ─────────────────────────────────────────────────────
+package "plugins / outputs" #E8F5E9 {
+
+    class ConsoleWriter {
+        + write(label: str, records: List[dict]) : None
+    }
+
+    class GraphicsChartWriter {
+        + write(label: str, records: List[dict]) : None
+        - _horizontal_bar(...) : None
+        - _bar_chart(...) : None
+        - _line_chart(...) : None
+        - _pie_chart(...) : None
+        - _single_stat(...) : None
+        - _decline_comparison_chart(...) : None
+    }
+
+    class DashboardWriter {
+        - _console : ConsoleWriter
+        - _charts  : GraphicsChartWriter
+        + write(label: str, records: List[dict]) : None
+    }
+}
+
+ConsoleWriter       ..|> DataSink : implements
+GraphicsChartWriter ..|> DataSink : implements
+DashboardWriter     ..|> DataSink : implements
+DashboardWriter --> ConsoleWriter       : delegates
+DashboardWriter --> GraphicsChartWriter : delegates
+
+' ─────────────────────────────────────────────────────
+' MAIN (orchestrator / entry-point)
+' ─────────────────────────────────────────────────────
+package "main" #FFF8E1 {
+
+    class "bootstrap()" as Main {
+        INPUT_DRIVERS  : dict
+        OUTPUT_DRIVERS : dict
+        + load_config(path) : dict
+        + bootstrap() : None
+    }
+}
+
+Main --> ConsoleWriter       : factory-creates
+Main --> GraphicsChartWriter : factory-creates
+Main --> DashboardWriter     : factory-creates
+Main --> TransformationEngine : creates & injects sink
+Main --> CSVReader  : creates & injects engine
+Main --> JSONReader : creates & injects engine
+
+' ─────────────────────────────────────────────────────
+' DATA
+' ─────────────────────────────────────────────────────
+package "data" #FAFAFA {
+    file "gdp.csv"
+    file "gdp.json"
+    file "config.json"
+}
+
+CSVReader  --> "gdp.csv"    : reads
+JSONReader --> "gdp.json"   : reads
+Main       --> "config.json": reads
+
+' ─────────────────────────────────────────────────────
+' DEPENDENCY FLOW NOTE
+' ─────────────────────────────────────────────────────
+note bottom of DataSink
+  **DIP Rule 1 – Outbound Abstraction**
+  Core defines DataSink.
+  Core never imports concrete writers.
+end note
+
+note bottom of PipelineService
+  **DIP Rule 2 – Inbound Abstraction**
+  Inputs depend on PipelineService protocol,
+  never on the concrete TransformationEngine.
+end note
+
+note top of Main
+  **Wiring order**
+  1. Load config.json
+  2. Create Sink  (Output plugin)
+  3. Create Engine (inject Sink)
+  4. Create Reader (inject Engine)
+  5. reader.load()  ← triggers pipeline
+end note
+
+@enduml
