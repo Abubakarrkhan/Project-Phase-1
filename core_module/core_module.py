@@ -28,7 +28,7 @@ class PipelineService(Protocol):
 # ---------------------------------------------------------------------------
 
 def _generate_signature(raw_value_str: str, key: str, iterations: int) -> str:
-
+    
     password_bytes = key.encode("utf-8")
     salt_bytes = raw_value_str.encode("utf-8")
     hash_bytes = hashlib.pbkdf2_hmac(
@@ -47,10 +47,7 @@ def _verify_packet(
     value_field: str = "metric_value",
     hash_field: str = "security_hash",
 ) -> bool:
-    """
-    Pure function – returns True only if the packet's signature is valid.
-    raw_value is rounded to 2 decimal places before signing (spec requirement).
-    """
+    
     raw_val = packet.get(value_field)
     expected_sig = packet.get(hash_field, "")
     if raw_val is None:
@@ -67,3 +64,53 @@ def _compute_running_average(window: deque) -> float:
     return reduce(lambda acc, x: acc + x, window, 0.0) / len(window)
 
 
+# ---------------------------------------------------------------------------
+# TransformationEngine  – Scatter-Gather + Functional-Core / Imperative-Shell
+# ---------------------------------------------------------------------------
+
+class TransformationEngine:
+    
+    def __init__(self, config: Dict[str, Any]) -> None:
+        proc = config.get("processing", {})
+
+        # Stateless task config
+        stateless = proc.get("stateless_tasks", {})
+        self._secret_key: str = stateless.get("secret_key", "")
+        self._iterations: int = stateless.get("iterations", 100000)
+
+        # Stateful task config
+        stateful = proc.get("stateful_tasks", {})
+        self._window_size: int = stateful.get("running_average_window_size", 10)
+
+        # Imperative Shell: mutable sliding window (per-engine-instance state)
+        self._window: deque = deque(maxlen=self._window_size)
+
+    # ------------------------------------------------------------------
+    # PipelineService interface
+    # ------------------------------------------------------------------
+
+    def process(self, raw_packet: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+     
+        # --- Scatter-Gather: stateless verification (pure function) ---
+        is_valid = _verify_packet(
+            raw_packet,
+            key=self._secret_key,
+            iterations=self._iterations,
+        )
+        if not is_valid:
+            return None  # Drop unverified packet
+
+        # --- Functional-Core / Imperative-Shell: sliding window average ---
+        # Imperative Shell: update mutable state
+        metric_value = float(raw_packet.get("metric_value", 0.0))
+        self._window.append(metric_value)
+
+        # Functional Core: pure computation on an immutable snapshot
+        window_snapshot: List[float] = list(self._window)
+        running_avg = _compute_running_average(deque(window_snapshot))
+
+        # Build enriched output packet
+        result = dict(raw_packet)
+        result["verified"] = True
+        result["computed_metric"] = round(running_avg, 4)
+        return result
