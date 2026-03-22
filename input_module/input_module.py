@@ -1,8 +1,49 @@
 
+
 import csv
 import time
 from multiprocessing import Queue
 from typing import Any, Dict, List
+
+
+# ---------------------------------------------------------------------------
+# Pure functional helpers
+# ---------------------------------------------------------------------------
+
+_CASTERS = {
+    "string":  str,
+    "integer": int,
+    "float":   float,
+}
+
+
+def _build_column_map(schema_columns: List[Dict]) -> Dict[str, Dict]:
+    """
+    Returns {source_name: {internal_mapping, caster}} for O(1) lookup per row.
+    Pure function – no side effects.
+    """
+    return {
+        col["source_name"]: {
+            "internal_name": col["internal_mapping"],
+            "caster":        _CASTERS.get(col["data_type"], str),
+        }
+        for col in schema_columns
+    }
+
+
+def _map_row(row: Dict[str, str], column_map: Dict[str, Dict]) -> Dict[str, Any]:
+    """
+    Maps a single raw CSV row to a generic packet.
+    Pure function – no side effects.
+    """
+    packet: Dict[str, Any] = {}
+    for source_name, mapping in column_map.items():
+        raw_val = row.get(source_name, "")
+        try:
+            packet[mapping["internal_name"]] = mapping["caster"](raw_val)
+        except (ValueError, TypeError):
+            packet[mapping["internal_name"]] = raw_val  # keep as string on cast failure
+    return packet
 
 
 # ---------------------------------------------------------------------------
@@ -47,5 +88,3 @@ class InputProducer:
             # Send one sentinel per worker to signal end-of-stream
             for _ in range(self._num_workers):
                 self._raw_queue.put(None)
-
-
