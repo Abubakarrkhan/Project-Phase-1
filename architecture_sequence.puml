@@ -1,0 +1,115 @@
+@startuml Phase3_SequenceDiagram
+
+!theme plain
+skinparam ArrowColor #444444
+skinparam SequenceBoxBorderColor #888888
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #FBC02D
+
+title Phase 3 – Generic Concurrent Real-Time Pipeline\nSequence Diagram
+
+actor       "TA / User"         as User
+participant "main.py"           as Main
+participant "PipelineTelemetry" as Tele
+participant "InputProducer"     as Input
+participant "raw_queue"         as RQ
+participant "CoreWorker×N"      as Core
+participant "intermediate_queue" as IQ
+participant "Aggregator"        as Agg
+participant "processed_queue"   as PQ
+participant "DashboardConsumer" as Dash
+
+== Bootstrap ==
+User  -> Main  : python main.py
+Main  -> Main  : load_config(config.json)
+Main  -> RQ    : Queue(maxsize=50)
+Main  -> IQ    : Queue(maxsize=50)
+Main  -> PQ    : Queue(maxsize=50)
+Main  -> Tele  : PipelineTelemetry(RQ, IQ, PQ)
+Main  -> Dash  : DashboardConsumer(config, PQ, Tele)
+Dash  -> Tele  : subscribe(self)
+Main  -> Tele  : start()  [background thread]
+
+Main  -> Input : Process(target=_run_producer).start()
+Main  -> Core  : Process(target=_run_core_worker).start() ×N
+Main  -> Agg   : Process(target=_run_aggregator).start()
+Main  -> Dash  : consumer.run()  [main thread – GUI]
+
+== Raw Data Stream  (Input → Core) ==
+loop for each CSV row
+    Input -> Input  : _map_row(row, column_map)\n[cast types per schema_mapping]
+    Input -> RQ     : put(packet)
+    note right of RQ
+      If queue is full (maxsize=50),
+      put() blocks → **backpressure**
+      naturally throttles InputProducer
+    end note
+    Input -> Input  : sleep(input_delay_seconds)
+end
+
+Input -> RQ : put(None) × num_workers  [EOF sentinel]
+
+== Core Processing Stream  (Core → Aggregator) ==
+loop each CoreWorker independently
+    Core -> RQ   : get(packet)
+    alt packet is None (sentinel)
+        Core -> IQ : put(None)
+        Core -> Core : exit
+    else valid packet
+        Core -> Core : _verify_packet(packet, secret_key, iterations)\n<<Scatter-Gather – pure fn, PBKDF2-HMAC-SHA256>>
+        alt signature invalid
+            Core -> Core : drop packet (return None)
+        else signature valid
+            Core -> Core : _window.append(metric_value)\n<<Imperative Shell – update mutable deque>>
+            Core -> Core : _compute_running_average(window_snapshot)\n<<Functional Core – pure fn on immutable snapshot>>
+            Core -> Core : result = {verified:True, computed_metric:avg, ...}
+            Core -> IQ   : put(result)
+        end
+    end
+end
+
+== Aggregation & Output ==
+loop until N sentinels received
+    Agg -> IQ  : get(packet)
+    alt None (sentinel)
+        Agg -> Agg : sentinels_received += 1
+    else result packet
+        Agg -> PQ  : put(result)
+    end
+end
+Agg -> PQ : put(None)  [signals DashboardConsumer]
+
+== Telemetry  (Observer Pattern) ==
+loop every 0.25s on background thread
+    Tele -> RQ   : qsize()
+    Tele -> IQ   : qsize()
+    Tele -> PQ   : qsize()
+    Tele -> Dash : update_telemetry({raw:N, intermediate:M, processed:K})
+    note right of Dash
+      Colour-coded bars update:
+      Green  < 50% full
+      Yellow < 80% full
+      Red   >= 80% full
+    end note
+end
+
+== Dashboard Rendering ==
+loop until None sentinel from processed_queue
+    Dash -> PQ   : get(packet)
+    alt None (pipeline complete)
+        Dash -> Dash : final redraw, plt.show() blocking
+    else result packet
+        Dash -> Dash : _route_packet(packet)\nappend to x_data / y_data buffers
+        Dash -> Dash : _redraw()\nupdate live line charts + telemetry bars
+    end
+end
+
+Dash -> User : window stays open until closed
+
+== Cleanup ==
+Main -> Tele  : stop()
+Main -> Input : join()
+Main -> Core  : join() ×N
+Main -> Agg   : join()
+
+@enduml

@@ -1,0 +1,164 @@
+@startuml Phase3_ClassDiagram
+
+!theme plain
+skinparam packageStyle rectangle
+skinparam ArrowColor #444444
+skinparam ClassBorderColor #444444
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #FBC02D
+
+title Phase 3 – Generic Concurrent Real-Time Pipeline\nClass Diagram
+
+' ─────────────────────────────────────────────────────
+' CORE MODULE  (owns contracts + all processing logic)
+' ─────────────────────────────────────────────────────
+package "core_module" #E3F2FD {
+
+    interface "<<Protocol>>\nDataSink" as DataSink {
+        + write(packet: Dict) : None
+    }
+
+    interface "<<Protocol>>\nPipelineService" as PipelineService {
+        + process(raw_packet: Dict) : Optional[Dict]
+    }
+
+    class TransformationEngine {
+        - _secret_key : str
+        - _iterations : int
+        - _window_size : int
+        - _window : deque
+        + __init__(config: dict)
+        + process(raw_packet: Dict) : Optional[Dict]
+        - <<Scatter-Gather>> _verify_packet(...)
+        - <<Functional Core>> _compute_running_average(...)
+    }
+
+    note right of TransformationEngine
+      **Pattern 1 – Scatter-Gather**
+      Each Core worker independently
+      runs _verify_packet (pure fn).
+      Invalid packets are dropped.
+
+      **Pattern 2 – Functional Core / Imperative Shell**
+      Imperative Shell: manages mutable deque
+      Functional Core: pure _compute_running_average
+    end note
+
+    TransformationEngine ..|> PipelineService : implements
+}
+
+' Pure functional helpers (free functions inside core_module)
+class "_generate_signature()\n_verify_packet()\n_compute_running_average()" as PureFns <<pure functions>> #DCEEFB
+TransformationEngine ..> PureFns : calls
+
+' ─────────────────────────────────────────────────────
+' INPUT MODULE
+' ─────────────────────────────────────────────────────
+package "input_module" #F3E5F5 {
+    class InputProducer {
+        - _dataset_path : str
+        - _delay : float
+        - _column_map : Dict
+        - _raw_queue : Queue
+        - _num_workers : int
+        + __init__(config, raw_queue, num_workers)
+        + run() : None
+    }
+    class "_build_column_map()\n_map_row()" as InputFns <<pure functions>> #EDD8F5
+    InputProducer ..> InputFns : uses
+}
+
+InputProducer --> "raw_queue\n<<multiprocessing.Queue>>" : put()
+
+' ─────────────────────────────────────────────────────
+' OUTPUT MODULE
+' ─────────────────────────────────────────────────────
+package "output_module" #E8F5E9 {
+    class DashboardConsumer {
+        - _processed_queue : Queue
+        - _telemetry : PipelineTelemetry
+        - _charts : List[Dict]
+        - _x_data : List[List]
+        - _y_data : List[List]
+        - _tele_state : Dict
+        + __init__(config, processed_queue, telemetry)
+        + update_telemetry(state: Dict) : None
+        + write(packet: Dict) : None
+        + run() : None
+        - _route_packet(packet) : None
+        - _redraw(axes, ...) : None
+    }
+}
+
+DashboardConsumer ..|> DataSink : implements
+DashboardConsumer --> "processed_queue\n<<multiprocessing.Queue>>" : get()
+
+' ─────────────────────────────────────────────────────
+' TELEMETRY  (Observer Pattern)
+' ─────────────────────────────────────────────────────
+package "telemetry" #FFF8E1 {
+    class PipelineTelemetry <<Subject>> {
+        - _raw_queue : Queue
+        - _intermediate_queue : Queue
+        - _processed_queue : Queue
+        - _poll_interval : float
+        - _observers : List
+        - _thread : Thread
+        + subscribe(observer) : None
+        + unsubscribe(observer) : None
+        + start() : None
+        + stop() : None
+        - _poll_loop() : None
+        - _snapshot() : Dict
+        - _notify(state) : None
+    }
+}
+
+PipelineTelemetry --> DashboardConsumer : notify update_telemetry()
+DashboardConsumer --> PipelineTelemetry : subscribe()
+
+' ─────────────────────────────────────────────────────
+' MAIN  (Orchestrator)
+' ─────────────────────────────────────────────────────
+package "main" #FFF3CD {
+    class "bootstrap()" as Main {
+        + load_config(path) : Dict
+        + bootstrap() : None
+        - _run_producer(...)
+        - _run_core_worker(...)
+        - _run_aggregator(...)
+        - _run_dashboard(...)
+    }
+}
+
+Main --> InputProducer         : creates & starts Process
+Main --> TransformationEngine  : creates N worker Processes
+Main --> DashboardConsumer     : runs in main process
+Main --> PipelineTelemetry     : creates & starts
+
+' ─────────────────────────────────────────────────────
+' QUEUES  (inter-process communication)
+' ─────────────────────────────────────────────────────
+package "IPC Queues (multiprocessing)" #F5F5F5 {
+    class "raw_queue\n(bounded)" as RawQ
+    class "intermediate_queue\n(bounded)" as IntQ
+    class "processed_queue\n(bounded)" as ProcQ
+}
+
+InputProducer      --> RawQ  : put() → backpressure if full
+TransformationEngine --> RawQ  : get()
+TransformationEngine --> IntQ  : put()
+"Aggregator\n(Process)" --> IntQ  : get()
+"Aggregator\n(Process)" --> ProcQ : put()
+DashboardConsumer  --> ProcQ : get()
+
+PipelineTelemetry ..> RawQ  : poll qsize()
+PipelineTelemetry ..> IntQ  : poll qsize()
+PipelineTelemetry ..> ProcQ : poll qsize()
+
+note bottom of RawQ
+  All queues are bounded (maxsize from config).
+  Full queue → put() blocks → natural backpressure.
+end note
+
+@enduml
